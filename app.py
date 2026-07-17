@@ -1,4 +1,5 @@
 import streamlit as st
+
 import pandas as pd
 from io import BytesIO
 import openpyxl
@@ -833,9 +834,9 @@ elif st.session_state.current_page == "rfd_summary_page":
                         df_final_cleaned.to_excel(writer, index=False, sheet_name='DAR')
                         matrix.to_excel(writer, index=False, sheet_name='RFD Summary Matrix')
                     
-                st.subheader("Your summary file is ready:")
+                st.subheader("Your file is ready.")
                 st.download_button(
-                    label="RFD Summary Report.xlsx",
+                    label="Download RFD Summary Report.xlsx",
                     data=output_buffer.getvalue(),
                     file_name="RFD Summary Report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
