@@ -1,5 +1,4 @@
 import streamlit as st
-
 import pandas as pd
 from io import BytesIO
 import openpyxl
@@ -570,7 +569,7 @@ elif st.session_state.current_page == "merge_page":
                 st.download_button(
                     label="Merged EFS DAR Report.xlsx",
                     data=output_buffer.getvalue(),
-                    file_name="Merged_EFS_DAR_Report.xlsx",
+                    file_name="Merged EFS DAR Report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
