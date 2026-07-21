@@ -509,9 +509,28 @@ elif st.session_state.current_page == "merge_page":
                     date_template_pattern = r'^(MM[-/]DD[-/]YYYY|DD[-/]MM[-/]YYYY|YYYY[-/]MM[-/]DD)$'
                     merged_df = merged_df[~merged_df['Action Date'].str.contains(date_template_pattern, case=False, na=False, regex=True)]
                     
-                    # 4. Create a temporary datetime helper column to sort Chronologically
-                    merged_df['temp_sort_date'] = pd.to_datetime(merged_df['Action Date'], errors='coerce')
-                    merged_df = merged_df.sort_values(by='temp_sort_date', na_position='last').drop(columns=['temp_sort_date']).reset_index(drop=True)
+                    # 4. Parse dates, sort chronologically, and strictly format to mm/dd/yyyy
+                    parsed_dates = pd.to_datetime(merged_df['Action Date'], errors='coerce')
+                    merged_df['temp_sort_date'] = parsed_dates
+                    merged_df = merged_df.sort_values(by='temp_sort_date', na_position='last').reset_index(drop=True)
+                    
+                    # Apply formatted string back to Action Date
+                    merged_df['Action Date'] = merged_df['temp_sort_date'].dt.strftime('%m/%d/%Y').fillna(merged_df['Action Date'])
+                    merged_df = merged_df.drop(columns=['temp_sort_date'])
+
+                # RFD Standardization / Grouping
+                if 'RFD' in merged_df.columns:
+                    def clean_merged_rfd(val):
+                        if pd.isna(val):
+                            return val
+                        val_str = str(val).strip().upper()
+                        if "UNCONTACT" in val_str:
+                            return "UNCONTACTABLE"
+                        if "MEDICAL REASON" in val_str and "HOSPITAL" in val_str:
+                            return "MEDICAL REASON/PRIORITIZED MEDICAL AND HOSPITAL EXPENSES"
+                        return val_str
+
+                    merged_df['RFD'] = merged_df['RFD'].apply(clean_merged_rfd)
                 
                 st.success("Files successfully combined into a single dataset!")
                 st.subheader("Combined File Preview")
