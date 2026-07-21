@@ -223,6 +223,19 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# Helper function to generate month and year format (e.g., "for JULY 2026")
+def generate_month_year_suffix(df):
+    if 'Action Date' in df.columns and not df['Action Date'].dropna().empty:
+        try:
+            dates = pd.to_datetime(df['Action Date'].dropna(), errors='coerce').dropna()
+            if not dates.empty:
+                sample_date = dates.iloc[0]
+                return f"for {sample_date.strftime('%B %Y').upper()}"
+        except:
+            pass
+    return f"for {pd.Timestamp.now().strftime('%B %Y').upper()}"
+
+
 # sidebar
 with st.sidebar:
     st.markdown("### 🧭 Workspace Menu")
@@ -297,8 +310,9 @@ if st.session_state.current_page == "daily_report":
                 # date
                 extracted_date_str = "REPORT_DATE"
                 if 'Date' in df_source.columns and not df_source['Date'].dropna().empty:
-                    first_date = pd.to_datetime(df_source['Date'].dropna().iloc[0])
-                    extracted_date_str = first_date.strftime('%m/%d/%Y')
+                    first_date = pd.to_datetime(df_source['Date'].dropna().iloc[0], errors='coerce')
+                    if pd.notna(first_date):
+                        extracted_date_str = first_date.strftime('%m/%d/%Y')
                     
                 template_columns = [
                     'Action Date', 'Campaign', 'Agency', 'IS #', 'Account', 
@@ -310,7 +324,7 @@ if st.session_state.current_page == "daily_report":
                 
                 # mapping
                 if 'Date' in df_source.columns:
-                    df_output['Action Date'] = pd.to_datetime(df_source['Date']).dt.strftime('%m/%d/%Y')
+                    df_output['Action Date'] = pd.to_datetime(df_source['Date'], errors='coerce').dt.strftime('%m/%d/%Y')
                 if 'Account No.' in df_source.columns:
                     df_output['IS #'] = df_source['Account No.']
                 if 'Card No.' in df_source.columns:
@@ -497,37 +511,58 @@ elif st.session_state.current_page == "merge_page":
             if all_dfs:
                 merged_df = pd.concat(all_dfs, ignore_index=True)
                 
-                # Filter out duplicated second headers and chronological date sorting
+                # Filter out duplicated second headers, placeholders, and strictly format Action Date to mm/dd/yyyy
                 if 'Action Date' in merged_df.columns:
                     # 1. Cast column to string to safely evaluate values
                     merged_df['Action Date'] = merged_df['Action Date'].astype(str).str.strip()
                     
-                    # 2. Filter out explicit text-based headers
-                    merged_df = merged_df[merged_df['Action Date'] != 'Action Date']
-                    
-                    # 3. Filter out placeholder date templates (e.g., MM-DD-YYYY, MM/DD/YYYY, DD-MM-YYYY)
-                    date_template_pattern = r'^(MM[-/]DD[-/]YYYY|DD[-/]MM[-/]YYYY|YYYY[-/]MM[-/]DD)$'
+                    # 2. Filter out text headers & template placeholders (e.g. MM/DD/YYYY)
+                    merged_df = merged_df[~merged_df['Action Date'].str.upper().isin(['ACTION DATE', 'MM/DD/YYYY', 'MM-DD-YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD'])]
+                    date_template_pattern = r'(MM|DD|YYYY)'
                     merged_df = merged_df[~merged_df['Action Date'].str.contains(date_template_pattern, case=False, na=False, regex=True)]
                     
-                    # 4. Parse dates, sort chronologically, and strictly format to mm/dd/yyyy
+                    # 3. Parse dates strictly
                     parsed_dates = pd.to_datetime(merged_df['Action Date'], errors='coerce')
                     merged_df['temp_sort_date'] = parsed_dates
-                    merged_df = merged_df.sort_values(by='temp_sort_date', na_position='last').reset_index(drop=True)
                     
-                    # Apply formatted string back to Action Date
-                    merged_df['Action Date'] = merged_df['temp_sort_date'].dt.strftime('%m/%d/%Y').fillna(merged_df['Action Date'])
+                    # 4. Drop any rows where date conversion failed (unparseable strings / remaining placeholders)
+                    merged_df = merged_df.dropna(subset=['temp_sort_date']).reset_index(drop=True)
+                    
+                    # 5. Sort chronologically and format strictly to mm/dd/yyyy
+                    merged_df = merged_df.sort_values(by='temp_sort_date').reset_index(drop=True)
+                    merged_df['Action Date'] = merged_df['temp_sort_date'].dt.strftime('%m/%d/%Y')
                     merged_df = merged_df.drop(columns=['temp_sort_date'])
 
-                # RFD Standardization / Grouping
+                # RFD Standardization / Grouping (Updated to fix typos like DIPUTE -> DISPUTE)
                 if 'RFD' in merged_df.columns:
                     def clean_merged_rfd(val):
                         if pd.isna(val):
                             return val
                         val_str = str(val).strip().upper()
-                        if "UNCONTACT" in val_str:
+
+                        if "DIPUTE" in val_str or "DISPUT" in val_str:
+                            return "DISPUTE"
+                        if "UNCONTACT" in val_str or "DEAR" in val_str or "####" in val_str:
                             return "UNCONTACTABLE"
-                        if "MEDICAL REASON" in val_str and "HOSPITAL" in val_str:
+                        if "BUSY" in val_str or "OVERLOOK" in val_str:
+                            return "BUSY/OVERLOOKED"
+                        if "MEDICAL" in val_str or "HOSPITAL" in val_str:
                             return "MEDICAL REASON/PRIORITIZED MEDICAL AND HOSPITAL EXPENSES"
+                        if "UNEMPLOY" in val_str:
+                            return "UNEMPLOYED"
+                        if "DECEASE" in val_str or "DEAD" in val_str:
+                            return "DECEASED"
+                        if "BANK PROCESS" in val_str:
+                            return "BANK PROCESS ISSUE"
+                        if "BUSINESS DOWN" in val_str or "DELAYED COLL" in val_str:
+                            return "BUSINESS DOWN/DELAYED COLLECTIONS"
+                        if "3RD PARTY" in val_str or "SQUANDER" in val_str:
+                            return "SQUANDERED BY 3RD PARTY"
+                        if "FRAUD" in val_str:
+                            return "FRAUD"
+                        if "CALAMITY" in val_str:
+                            return "CALAMITY"
+
                         return val_str
 
                     merged_df['RFD'] = merged_df['RFD'].apply(clean_merged_rfd)
@@ -584,11 +619,14 @@ elif st.session_state.current_page == "merge_page":
                     with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
                         merged_df.to_excel(writer, index=False, sheet_name='Merged DAR')
                 
+                month_year_suffix = generate_month_year_suffix(merged_df)
+                merged_filename = f"DAR {month_year_suffix}.xlsx"
+
                 st.subheader("Your file is ready:")
                 st.download_button(
-                    label="Merged EFS DAR Report.xlsx",
+                    label=f"Download {merged_filename}",
                     data=output_buffer.getvalue(),
-                    file_name="Merged EFS DAR Report.xlsx",
+                    file_name=merged_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
@@ -745,15 +783,16 @@ elif st.session_state.current_page == "rfd_summary_page":
                             if cell.value:
                                 cell.font = header_font
                                 
-                    # RFD SUMMARY TABLE =================================================================================================
+                    # RFD SUMMARY TABLE: sa second sheet ====================================================================================
                     ws_summary = wb_styled.create_sheet(title='RFD Summary Matrix')
                     ws_summary.views.sheetView[0].showGridLines = True
                     
                     report_month_year = "SUMMARY REPORT"
                     if 'Action Date' in df_final_cleaned.columns and not df_final_cleaned['Action Date'].dropna().empty:
                         try:
-                            sample_date = pd.to_datetime(df_final_cleaned['Action Date'].dropna().iloc[0])
-                            report_month_year = sample_date.strftime('%B %Y').upper()
+                            sample_date = pd.to_datetime(df_final_cleaned['Action Date'].dropna().iloc[0], errors='coerce')
+                            if pd.notna(sample_date):
+                                report_month_year = sample_date.strftime('%B %Y').upper()
                         except:
                             pass
                     
@@ -852,11 +891,14 @@ elif st.session_state.current_page == "rfd_summary_page":
                         df_final_cleaned.to_excel(writer, index=False, sheet_name='DAR')
                         matrix.to_excel(writer, index=False, sheet_name='RFD Summary Matrix')
                     
+                month_year_suffix = generate_month_year_suffix(df_final_cleaned)
+                summary_filename = f"RFD Summary {month_year_suffix}.xlsx"
+
                 st.subheader("Your file is ready.")
                 st.download_button(
-                    label="Download RFD Summary Report.xlsx",
+                    label=f"Download {summary_filename}",
                     data=output_buffer.getvalue(),
-                    file_name="RFD Summary Report.xlsx",
+                    file_name=summary_filename,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         # pls pls pls wag na pls Lord
