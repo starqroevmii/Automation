@@ -223,7 +223,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Helper function to generate month and year format (e.g., "for JULY 2026")
 def generate_month_year_suffix(df):
     if 'Action Date' in df.columns and not df['Action Date'].dropna().empty:
         try:
@@ -511,29 +510,22 @@ elif st.session_state.current_page == "merge_page":
             if all_dfs:
                 merged_df = pd.concat(all_dfs, ignore_index=True)
                 
-                # Filter out duplicated second headers, placeholders, and strictly format Action Date to mm/dd/yyyy
                 if 'Action Date' in merged_df.columns:
-                    # 1. Cast column to string to safely evaluate values
                     merged_df['Action Date'] = merged_df['Action Date'].astype(str).str.strip()
                     
-                    # 2. Filter out text headers & template placeholders (e.g. MM/DD/YYYY)
                     merged_df = merged_df[~merged_df['Action Date'].str.upper().isin(['ACTION DATE', 'MM/DD/YYYY', 'MM-DD-YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD'])]
                     date_template_pattern = r'(MM|DD|YYYY)'
                     merged_df = merged_df[~merged_df['Action Date'].str.contains(date_template_pattern, case=False, na=False, regex=True)]
                     
-                    # 3. Parse dates strictly
                     parsed_dates = pd.to_datetime(merged_df['Action Date'], errors='coerce')
                     merged_df['temp_sort_date'] = parsed_dates
                     
-                    # 4. Drop any rows where date conversion failed (unparseable strings / remaining placeholders)
                     merged_df = merged_df.dropna(subset=['temp_sort_date']).reset_index(drop=True)
                     
-                    # 5. Sort chronologically and format strictly to mm/dd/yyyy
                     merged_df = merged_df.sort_values(by='temp_sort_date').reset_index(drop=True)
                     merged_df['Action Date'] = merged_df['temp_sort_date'].dt.strftime('%m/%d/%Y')
                     merged_df = merged_df.drop(columns=['temp_sort_date'])
 
-                # RFD Standardization / Grouping (Updated to fix typos like DIPUTE -> DISPUTE)
                 if 'RFD' in merged_df.columns:
                     def clean_merged_rfd(val):
                         if pd.isna(val):
